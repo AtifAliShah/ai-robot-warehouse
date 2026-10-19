@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Robot Warehouse Simulator — Agent-Based Logistics Engine</title>
+    <meta name="description" content="Realistic Agent-Based Modeling automated logistics warehouse simulation with Autonomous Mobile Robots (AMRs), high-bay racks, and dynamic task assignment.">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- TOP LOGISTICS COMMAND HEADER -->
+    <header id="app-header">
+        <div class="header-left">
+            <span class="header-icon">🤖</span>
+            <div>
+                <h1>AI ROBOT WAREHOUSE SIMULATOR</h1>
+                <span class="header-sub">Automated Logistics &amp; AMR Orchestration &bull; Atif Ali Shah (@AtifAliShah)</span>
+            </div>
+        </div>
+        <div class="header-center">
+            <div id="fleet-status-badge" class="status-badge ready">FLEET STATUS: OPTIMAL DISPATCH</div>
+        </div>
+        <div class="header-right">
+            <button id="btn-sound" class="header-btn" title="Toggle Robotic Telemetry Audio">🔊 Audio: ON</button>
+            <button id="btn-info" class="header-btn" title="ABM Logistics Formulation">📖 ABM Theory</button>
+            <button id="btn-compare" class="header-btn" title="Strategy Comparison Laboratory">⚗️ Compare</button>
+        </div>
+    </header>
+
+    <main id="app-main">
+        <!-- LEFT PANEL: Controls & Settings -->
+        <aside id="panel-left">
+            <!-- PLAYBACK CONTROLS -->
+            <section class="panel-section">
+                <h3 class="section-title">⚙ FLEET COMMAND</h3>
+                <div class="control-row">
+                    <button id="btn-start" class="btn btn-green">▶ Start</button>
+                    <button id="btn-pause" class="btn btn-amber" disabled>⏸ Pause</button>
+                    <button id="btn-step" class="btn btn-blue">⏭ Step</button>
+                    <button id="btn-reset" class="btn btn-red">↺ Reset</button>
+                </div>
+                <div class="slider-group">
+                    <div class="slider-header">
+                        <label>Simulation Clock Speed</label>
+                        <span id="val-speed" class="badge">1.0x</span>
+                    </div>
+                    <input type="range" id="slider-speed" min="0.1" max="5" step="0.1" value="1">
+                </div>
+            </section>
+
+            <!-- TASK ALLOCATION STRATEGY -->
+            <section class="panel-section">
+                <h3 class="section-title">🧠 DISPATCH ALLOCATION STRATEGY</h3>
+                <div class="select-group">
+                    <select id="select-strategy">
+                        <option value="priority_battery" selected>Strategy B: Priority &amp; Battery-Aware</option>
+                        <option value="nearest">Strategy A: Nearest Robot (Greedy)</option>
+                    </select>
+                </div>
+            </section>
+
+            <!-- MANUAL LOGISTICS ACTIONS -->
+            <section class="panel-section">
+                <h3 class="section-title">📦 WAREHOUSE ACTIONS</h3>
+                <div class="deploy-grid">
+                    <button id="btn-add-order" class="btn btn-sm btn-green">+ New Order</button>
+                    <button id="btn-emergency-charge" class="btn btn-sm btn-amber">⚡ Low Batt Alert</button>
+                </div>
+                <p class="hint-text">💡 <em>Shift-Click any aisle on the canvas to toggle obstacle barricades!</em></p>
+            </section>
+
+            <!-- SCENARIO PRESETS -->
+            <section class="panel-section">
+                <h3 class="section-title">📋 SCENARIO PRESETS</h3>
+                <div class="preset-grid">
+                    <button class="btn btn-preset" data-preset="normal">🏭 Normal Shift</button>
+                    <button class="btn btn-preset" data-preset="rush">📦 Order Rush Peak</button>
+                    <button class="btn btn-preset" data-preset="narrow">🚧 Narrow Aisles</button>
+                    <button class="btn btn-preset" data-preset="battery">🔋 Low Battery Crisis</button>
+                </div>
+            </section>
+
+            <!-- FLEET PARAMETERS -->
+            <section class="panel-section">
+                <h3 class="section-title">🤖 FLEET QUOTAS</h3>
+                <div class="slider-group">
+                    <div class="slider-header"><label>Active AMR Robots</label><span id="val-robots" class="badge">12</span></div>
+                    <input type="range" id="slider-robots" min="4" max="28" step="1" value="12">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-header"><label>AMR Velocity Multiplier</label><span id="val-speed-mult" class="badge">1.0x</span></div>
+                    <input type="range" id="slider-speed-mult" min="0.5" max="2.2" step="0.1" value="1.0">
+                </div>
+            </section>
+
+            <!-- WAREHOUSE LEGEND -->
+            <section class="panel-section">
+                <h3 class="section-title">🗺 FACILITY MAP LEGEND</h3>
+                <div class="legend-grid">
+                    <div class="legend-item"><span class="badge-box" style="background:#1e3a8a"></span> Inbound Receiving Docks</div>
+                    <div class="legend-item"><span class="badge-box" style="background:#14532d"></span> Outbound Packing &amp; Conveyors</div>
+                    <div class="legend-item"><span class="badge-box" style="background:#eab308"></span> High-Bay Storage Racks</div>
+                    <div class="legend-item"><span class="badge-box" style="background:#0f172a; border: 1px solid #22c55e;"></span> Fast-Charging Pads</div>
+                    <div class="legend-item"><span class="badge-dot" style="background:#eab308"></span> Transport AMR</div>
+                    <div class="legend-item"><span class="badge-dot" style="background:#0284c7"></span> Express Sorting AMR</div>
+                    <div class="legend-item"><span class="badge-dot" style="background:#ea580c"></span> Shelf Lifter AMR</div>
+                    <div class="legend-item"><span class="badge-box" style="background:#b45309"></span> Cardboard Parcel Box</div>
+                </div>
+            </section>
+        </aside>
+
+        <!-- CENTER: Simulation Canvas & HUD -->
+        <div id="canvas-container">
+            <canvas id="sim-canvas"></canvas>
+
+            <!-- FLOATING CAMERA HUD -->
+            <div id="camera-hud">
+                <button id="btn-zoom-in" title="Zoom In">+</button>
+                <button id="btn-zoom-out" title="Zoom Out">&minus;</button>
+                <button id="btn-zoom-reset" title="Reset View (100%)">1:1</button>
+                <button id="btn-follow-toggle" title="Track Selected AMR">🎯 Track</button>
+            </div>
+
+            <!-- ROBOT INSPECTION DOSSIER (OPENS ON SELECTION) -->
+            <div id="robot-dossier" class="dossier-panel hidden">
+                <div class="dossier-header">
+                    <div class="dossier-avatar">🤖</div>
+                    <div class="dossier-title-box">
+                        <h4 id="dos-id">AMR-01</h4>
+                        <span id="dos-role" class="dossier-badge">TRANSPORT UNIT</span>
+                    </div>
+                    <button class="dossier-close" id="dos-close">&times;</button>
+                </div>
+                <div class="dossier-body">
+                    <div class="dos-row">
+                        <span class="dos-label">Operational State</span>
+                        <span id="dos-state" class="dos-val highlight">NAVIGATING PICKUP</span>
+                    </div>
+                    <div class="dos-row">
+                        <span class="dos-label">Diagnostic Status</span>
+                        <span id="dos-status" class="dos-val">En route to Bay A-1</span>
+                    </div>
+                    <div class="dos-row">
+                        <span class="dos-label">Battery Level</span>
+                        <div class="dos-bar-wrap"><div id="dos-batt-fill" class="dos-bar-fill battery" style="width: 85%;"></div></div>
+                        <span id="dos-batt-pct" class="dos-val">85%</span>
+                    </div>
+                    <div class="dos-row">
+                        <span class="dos-label">Carried Payload</span>
+                        <span id="dos-package" class="dos-val">PKG-104 (LiDAR Module)</span>
+                    </div>
+                    <div class="dos-row">
+                        <span class="dos-label">Total Deliveries</span>
+                        <span id="dos-deliv-count" class="dos-val" style="color:#22c55e; font-weight:700;">8</span>
+                    </div>
+                    <div class="dos-row">
+                        <span class="dos-label">Distance Logged</span>
+                        <span id="dos-dist" class="dos-val">245 meters</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="canvas-overlay">
+                <span id="overlay-status">FACILITY READY — Select task allocation strategy and press Start</span>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL: Live Telemetry & Mission Analytics -->
+        <aside id="panel-right">
+            <section class="panel-section">
+                <h3 class="section-title">📊 FLEET TELEMETRY</h3>
+                <div class="stats-grid">
+                    <div class="stat-card stat-cyan">
+                        <div class="stat-value" id="stat-active">0</div>
+                        <div class="stat-label">Active Dispatched</div>
+                    </div>
+                    <div class="stat-card stat-green">
+                        <div class="stat-value" id="stat-delivered">0</div>
+                        <div class="stat-label">Completed Orders</div>
+                    </div>
+                    <div class="stat-card stat-amber">
+                        <div class="stat-value" id="stat-pending">0</div>
+                        <div class="stat-label">Pending Orders</div>
+                    </div>
+                    <div class="stat-card stat-green">
+                        <div class="stat-value" id="stat-charging">0</div>
+                        <div class="stat-label">At Charging Docks</div>
+                    </div>
+                    <div class="stat-card stat-gray">
+                        <div class="stat-value" id="stat-distance">0 m</div>
+                        <div class="stat-label">Total Distance</div>
+                    </div>
+                    <div class="stat-card stat-blue">
+                        <div class="stat-value" id="stat-energy">0.0 kWh</div>
+                        <div class="stat-label">Energy Consumed</div>
+                    </div>
+                    <div class="stat-card stat-indigo">
+                        <div class="stat-value" id="stat-delivtime">0.0 s</div>
+                        <div class="stat-label">Avg Delivery Time</div>
+                    </div>
+                    <div class="stat-card stat-red">
+                        <div class="stat-value" id="stat-blocked">0</div>
+                        <div class="stat-label">Blocked / Rerouted</div>
+                    </div>
+                </div>
+
+                <!-- FLEET BATTERY PROGRESS -->
+                <div class="progress-wrap">
+                    <div class="progress-label"><span>Fleet Battery Reserve</span><span id="stat-batt">85%</span></div>
+                    <div class="progress-track"><div class="progress-fill fill-green" id="bar-fleet-batt" style="width:85%"></div></div>
+                </div>
+            </section>
+
+            <!-- LIVE LOGISTICS OUTPUT CHART -->
+            <section class="panel-section">
+                <h3 class="section-title">📈 FULFILLMENT VELOCITY (LIVE CHART)</h3>
+                <div class="chart-container">
+                    <canvas id="chart-logistics"></canvas>
+                </div>
+            </section>
+
+            <!-- FLEET DISPATCH LOG -->
+            <section class="panel-section">
+                <div class="section-header-row">
+                    <h3 class="section-title">📻 DISPATCH CONSOLE LOG</h3>
+                </div>
+                <div id="event-log" class="event-log"></div>
+            </section>
+        </aside>
+    </main>
+
+    <!-- THEORY MODAL -->
+    <div id="modal-info" class="modal hidden">
+        <div class="modal-content">
+            <button class="modal-close" id="close-info">&times;</button>
+            <h2>📖 Automated Logistics: Agent-Based Modeling Formulation</h2>
+            <div class="theory-body">
+                <div class="theory-section">
+                    <h3>1. Theoretical Foundation</h3>
+                    <p>Designed and built for Atif Ali Shah's university Agent-Based Modeling course, this simulation models the autonomous decision-making and spatial coordination of Autonomous Mobile Robots (AMRs) in an automated fulfillment center.</p>
+                </div>
+                <div class="theory-section">
+                    <h3>2. Task Allocation Strategies</h3>
+                    <ul>
+                        <li><strong>Strategy A (Nearest Robot):</strong> Greedy allocation based purely on Euclidean travel distance to package pickup location.</li>
+                        <li><strong>Strategy B (Priority &amp; Battery Aware):</strong> Multi-criteria decision function balancing remaining battery capacity, priority order weight (Express vs Standard), and distance.</li>
+                    </ul>
+                </div>
+                <div class="theory-section">
+                    <h3>3. Collision Avoidance &amp; Route Recovery</h3>
+                    <p>AMRs execute decentralized proximity radar checks to prevent collisions at intersections. When an aisle is obstructed, robots recalculate alternative routes dynamically using A* search.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- COMPARISON MODAL -->
+    <div id="modal-compare" class="modal hidden">
+        <div class="modal-content modal-wide">
+            <button class="modal-close" id="close-compare">&times;</button>
+            <h2>⚗️ Logistics Strategy Comparison Laboratory</h2>
+            <p class="compare-desc">Run parallel simulations over 1,500 ticks under identical random seeds to empirically benchmark task allocation strategies and fleet sizing.</p>
+            <div class="compare-presets">
+                <button class="btn btn-preset" data-compare="strategy">🧠 Nearest vs Priority &amp; Battery Aware</button>
+                <button class="btn btn-preset" data-compare="fleet">🤖 Fleet Size: 6 vs 18 AMRs</button>
+                <button class="btn btn-preset" data-compare="blockage">🚧 Open vs Restricted Aisles</button>
+            </div>
+            <div id="compare-status" class="compare-status"></div>
+            <div id="compare-results" class="compare-grid hidden">
+                <div class="compare-col"><h4 id="compare-label-a">Scenario A</h4><div id="compare-stats-a"></div></div>
+                <div class="compare-col"><h4 id="compare-label-b">Scenario B</h4><div id="compare-stats-b"></div></div>
+            </div>
+            <div id="compare-charts" class="compare-charts hidden">
+                <canvas id="chart-compare"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/world.js"></script>
+    <script src="js/agents.js"></script>
+    <script src="js/simulation.js"></script>
+    <script src="js/renderer.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
