@@ -50,17 +50,20 @@ class WarehouseSimulation {
         const rng = this.rng;
 
         // Spawn Fleet of Autonomous Mobile Robots (AMRs)
-        const roles = ['transport', 'transport', 'sorting', 'shelf_lifter'];
+        const roles = ['transport', 'shelf_lifter', 'transport', 'sorting'];
         for (let i = 0; i < this.config.robotCount; i++) {
             const dock = this.world.chargingDocks[i % this.world.chargingDocks.length];
             const role = roles[i % roles.length];
+            const isWest = dock.x < WAREHOUSE_W / 2;
+            const spawnX = isWest ? dock.x + 36 : dock.x - 36;
             const bot = new RobotAgent(
                 `AMR-${String(i + 1).padStart(2, '0')}`,
-                dock.x + (i % 2 === 0 ? 30 : -30),
+                spawnX,
                 dock.y,
                 role,
                 createRNG(this.seed + i + 1000)
             );
+            bot.angle = isWest ? 0 : Math.PI;
             this.robots.push(bot);
         }
 
@@ -96,7 +99,10 @@ class WarehouseSimulation {
             bot.update(this.world, this.robots, this.config.strategy);
         }
 
-        // 3. Periodically replenish incoming customer shipment orders
+        // 3. Update Human Warehouse Staff
+        this.world.updateStaff(this.tick);
+
+        // 4. Periodically replenish incoming customer shipment orders
         if (this.tick % 120 === 0) {
             this._replenishOrders();
         }
@@ -120,50 +126,55 @@ class WarehouseSimulation {
 
     _dispatchOrders() {
         const availableOrders = this.world.packages.filter(p => p.status === 'IN_STOCK' && !p.carriedBy);
-        const idleRobots = this.robots.filter(r => r.state === 'IDLE' && r.battery > 25);
+        let idleRobots = this.robots.filter(r => r.state === 'IDLE' && r.battery > 25);
 
         if (availableOrders.length === 0 || idleRobots.length === 0) return;
 
         if (this.config.strategy === 'nearest') {
             // Strategy A: Nearest Robot
             for (const pkg of availableOrders) {
+                if (idleRobots.length === 0) break;
                 let closestBot = null;
                 let minDist = Infinity;
-                for (const bot of idleRobots) {
-                    if (bot.state === 'IDLE') {
-                        const d = dist(bot, pkg);
-                        if (d < minDist) {
-                            minDist = d;
-                            closestBot = bot;
-                        }
+                let closestIdx = -1;
+                for (let i = 0; i < idleRobots.length; i++) {
+                    const bot = idleRobots[i];
+                    const d = dist(bot, pkg);
+                    if (d < minDist) {
+                        minDist = d;
+                        closestBot = bot;
+                        closestIdx = i;
                     }
                 }
-                if (closestBot) {
+                if (closestBot && closestIdx >= 0) {
                     closestBot.assignOrder(pkg, this.world);
+                    idleRobots.splice(closestIdx, 1);
                     this._addEvent('info', `Dispatched ${closestBot.id} (Nearest) to pick up parcel ${pkg.id}`);
                 }
             }
         } else {
             // Strategy B: Priority & Battery Aware Strategy
             for (const pkg of availableOrders) {
+                if (idleRobots.length === 0) break;
                 let bestBot = null;
                 let bestScore = -Infinity;
+                let bestIdx = -1;
 
                 const priorityWeight = pkg.priority === 'EXPRESS' ? 120 : (pkg.priority === 'STANDARD' ? 60 : 30);
 
-                for (const bot of idleRobots) {
-                    if (bot.state === 'IDLE') {
-                        const travelDist = dist(bot, pkg);
-                        // Score considers remaining battery (+), proximity (-), and high priority boost
-                        const score = (bot.battery * 2.0) - (travelDist * 0.4) + priorityWeight;
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestBot = bot;
-                        }
+                for (let i = 0; i < idleRobots.length; i++) {
+                    const bot = idleRobots[i];
+                    const travelDist = dist(bot, pkg);
+                    const score = (bot.battery * 2.0) - (travelDist * 0.4) + priorityWeight;
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestBot = bot;
+                        bestIdx = i;
                     }
                 }
-                if (bestBot) {
+                if (bestBot && bestIdx >= 0) {
                     bestBot.assignOrder(pkg, this.world);
+                    idleRobots.splice(bestIdx, 1);
                     this._addEvent('good', `Optimized Dispatch: ${bestBot.id} assigned [${pkg.priority}] parcel ${pkg.id}`);
                 }
             }

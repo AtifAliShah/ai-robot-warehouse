@@ -24,7 +24,8 @@ const T_CELL = {
     OUTBOUND_STATION: 4,
     CHARGING_DOCK: 5,
     CONVEYOR: 6,
-    BLOCKED: 7
+    BLOCKED: 7,
+    WALKWAY: 8
 };
 
 class WarehouseWorld {
@@ -38,18 +39,26 @@ class WarehouseWorld {
         this.blockedAisles = new Set(); // Set of "col,row" strings
         this.packages = [];
         this.props = [];
+        this.pedestrianWalkways = [];
+        this.overheadLights = [];
+        this.logisticsTrucks = [];
+        this.supervisors = [];
+        this.stationWorkers = [];
+        this.pallets = [];
+        this.safetyBollards = [];
+        this.floorFiducials = [];
 
         this.generate();
     }
 
     generate() {
-        // 1. Build Base Concrete Floor and Travel Lanes
+        // 1. Build Base Concrete Floor, Travel Highways and Green Safety Walkways
         this._buildFloorsAndLanes();
 
         // 2. Build High-Bay Industrial Storage Racks (Aisles A1-A4, B1-B4)
         this._buildStorageRacks();
 
-        // 3. Build Inbound Receiving Docks (North)
+        // 3. Build Inbound Receiving Docks (North) & Logistics Semi-Trucks
         this._buildInboundDocks();
 
         // 4. Build Outbound Packing & Dispatch Stations (South)
@@ -58,8 +67,17 @@ class WarehouseWorld {
         // 5. Build Autonomous Charging Docks (West & East perimeters)
         this._buildChargingDocks();
 
-        // 6. Populate Initial Stock of Physical Cardboard Parcel Boxes on Racks
+        // 6. Build Overhead Industrial LED High-Bay Lights
+        this._buildOverheadLighting();
+
+        // 7. Build Ground Safety Bollards & Floor Navigation Fiducial Matrix Tags
+        this._buildFixturesAndFiducials();
+
+        // 8. Populate Initial Stock of Physical Cardboard Parcel Boxes and Pallets
         this._populateInitialPackages();
+
+        // 9. Spawn Human Warehouse Supervisors & Packing Station Operators
+        this._spawnHumanStaff();
     }
 
     _buildFloorsAndLanes() {
@@ -83,6 +101,18 @@ class WarehouseWorld {
                 this.grid[r][c] = T_CELL.LANE;
             }
         });
+
+        // Green Epoxy Pedestrian Safety Walkways (Safe zones for humans)
+        // Row 4 (North walkway below docks) & Row 34 (South walkway above dispatch)
+        for (let c = 4; c < COLS - 4; c++) {
+            this.pedestrianWalkways.push({ x: c * TILE, y: 4 * TILE, w: TILE, h: TILE, orientation: 'H' });
+            this.pedestrianWalkways.push({ x: c * TILE, y: 34 * TILE, w: TILE, h: TILE, orientation: 'H' });
+        }
+        // Vertical connector walkway on column 4
+        for (let r = 4; r <= 34; r++) {
+            this.pedestrianWalkways.push({ x: 4 * TILE, y: r * TILE, w: TILE, h: TILE, orientation: 'V' });
+            this.pedestrianWalkways.push({ x: (COLS - 5) * TILE, y: r * TILE, w: TILE, h: TILE, orientation: 'V' });
+        }
     }
 
     _buildStorageRacks() {
@@ -136,9 +166,9 @@ class WarehouseWorld {
     _buildInboundDocks() {
         // North Receiving Bay (Docks 1, 2, 3)
         const docks = [
-            { x: 12 * TILE, y: 2 * TILE, name: "Inbound Dock 1 (Freight Truck Alpha)" },
-            { x: 26 * TILE, y: 2 * TILE, name: "Inbound Dock 2 (Freight Truck Beta)" },
-            { x: 40 * TILE, y: 2 * TILE, name: "Inbound Dock 3 (Air Cargo Express)" }
+            { x: 12 * TILE, y: 2 * TILE, name: "Inbound Dock 1 (Freightliner Alpha)" },
+            { x: 26 * TILE, y: 2 * TILE, name: "Inbound Dock 2 (Volvo Aero Cargo)" },
+            { x: 40 * TILE, y: 2 * TILE, name: "Inbound Dock 3 (Mercedes Express)" }
         ];
 
         docks.forEach((d, idx) => {
@@ -147,10 +177,21 @@ class WarehouseWorld {
                 name: d.name,
                 x: d.x,
                 y: d.y,
-                rect: { x: d.x - 30, y: d.y - 15, w: 60, h: 30 },
+                rect: { x: d.x - 40, y: d.y - 25, w: 80, h: 42 },
                 queue: []
             });
-            this._fillGridRect(Math.floor((d.x - 30) / TILE), 1, Math.ceil(60 / TILE), 2, T_CELL.INBOUND_DOCK);
+            this._fillGridRect(Math.floor((d.x - 40) / TILE), 0, Math.ceil(80 / TILE), 3, T_CELL.INBOUND_DOCK);
+
+            // Logistics Semi-Trailer Trucks backed into the dock
+            this.logisticsTrucks.push({
+                id: `TRUCK_${idx + 1}`,
+                x: d.x,
+                y: -10, // Partially visible outside wall through open bay
+                w: 70,
+                h: 90,
+                color: idx === 0 ? '#1e3a8a' : (idx === 1 ? '#047857' : '#b91c1c'),
+                brand: idx === 0 ? 'MAERSK LOGISTICS' : (idx === 1 ? 'DHL EXPRESS' : 'FEDEX FREIGHT')
+            });
         });
     }
 
@@ -160,7 +201,7 @@ class WarehouseWorld {
             { x: 12 * TILE, y: 36 * TILE, name: "Dispatch Station 1 (Domestic Ground)" },
             { x: 26 * TILE, y: 36 * TILE, name: "Dispatch Station 2 (Next-Day Air)" },
             { x: 40 * TILE, y: 36 * TILE, name: "Dispatch Station 3 (Regional Sorting)" },
-            { x: 50 * TILE, y: 36 * TILE, name: "Dispatch Station 4 (International)" }
+            { x: 50 * TILE, y: 36 * TILE, name: "Dispatch Station 4 (International Priority)" }
         ];
 
         stations.forEach((s, idx) => {
@@ -169,10 +210,11 @@ class WarehouseWorld {
                 name: s.name,
                 x: s.x,
                 y: s.y,
-                rect: { x: s.x - 30, y: s.y - 15, w: 60, h: 30 },
-                completedDeliveries: 0
+                rect: { x: s.x - 35, y: s.y - 18, w: 70, h: 36 },
+                completedDeliveries: 0,
+                laserActive: true
             });
-            this._fillGridRect(Math.floor((s.x - 30) / TILE), 35, Math.ceil(60 / TILE), 2, T_CELL.OUTBOUND_STATION);
+            this._fillGridRect(Math.floor((s.x - 35) / TILE), 35, Math.ceil(70 / TILE), 2, T_CELL.OUTBOUND_STATION);
         });
 
         // Motorized Roller Conveyor Belts running along south perimeter
@@ -180,8 +222,8 @@ class WarehouseWorld {
             x: 8 * TILE,
             y: 37 * TILE,
             w: 48 * TILE,
-            h: 18,
-            speed: 1.2
+            h: 22,
+            speed: 1.4
         });
     }
 
@@ -193,11 +235,12 @@ class WarehouseWorld {
                 id: `CHG_W${i + 1}`,
                 x: 2 * TILE,
                 y: dy,
-                rect: { x: 1 * TILE, y: dy - 12, w: 3 * TILE, h: 24 },
+                rect: { x: 1 * TILE, y: dy - 14, w: 3 * TILE, h: 28 },
                 occupiedBy: null,
-                chargeRate: 0.35 // % per tick
+                chargeRate: 0.40, // % per tick
+                voltage: 48.2 + (i * 0.3)
             });
-            this._fillGridRect(1, Math.floor((dy - 12) / TILE), 3, 1, T_CELL.CHARGING_DOCK);
+            this._fillGridRect(1, Math.floor((dy - 14) / TILE), 3, 1, T_CELL.CHARGING_DOCK);
         }
 
         // East Wall Charging Pad Bank (4 stations)
@@ -207,35 +250,80 @@ class WarehouseWorld {
                 id: `CHG_E${i + 1}`,
                 x: 61 * TILE,
                 y: dy,
-                rect: { x: 60 * TILE, y: dy - 12, w: 3 * TILE, h: 24 },
+                rect: { x: 60 * TILE, y: dy - 14, w: 3 * TILE, h: 28 },
                 occupiedBy: null,
-                chargeRate: 0.35
+                chargeRate: 0.40,
+                voltage: 48.1 + (i * 0.4)
             });
-            this._fillGridRect(60, Math.floor((dy - 12) / TILE), 3, 1, T_CELL.CHARGING_DOCK);
+            this._fillGridRect(60, Math.floor((dy - 14) / TILE), 3, 1, T_CELL.CHARGING_DOCK);
+        }
+    }
+
+    _buildOverheadLighting() {
+        // High-Bay Industrial UFO LED Light Fixtures spaced evenly
+        const lightCols = [10, 22, 34, 46, 56];
+        const lightRows = [6, 18, 30, 36];
+        for (const c of lightCols) {
+            for (const r of lightRows) {
+                this.overheadLights.push({
+                    x: c * TILE,
+                    y: r * TILE,
+                    radius: 170,
+                    intensity: 0.14
+                });
+            }
+        }
+    }
+
+    _buildFixturesAndFiducials() {
+        // Safety Bollards at rack aisle entrances to protect high-bay columns
+        const rackCols = [9, 17, 21, 29, 33, 41, 45, 53];
+        const rackRows = [8, 16, 20, 28];
+        rackCols.forEach(c => {
+            rackRows.forEach(r => {
+                this.safetyBollards.push({ x: c * TILE, y: r * TILE, radius: 4.5 });
+            });
+        });
+
+        // Optical Navigation Fiducial Matrix / QR Markers at grid intersections
+        for (let r = 5; r <= 38; r += 3) {
+            for (let c = 6; c <= 55; c += 3) {
+                if (this.grid[r][c] === T_CELL.LANE) {
+                    this.floorFiducials.push({ x: c * TILE + TILE / 2, y: r * TILE + TILE / 2, tagId: `TAG-${r}-${c}` });
+                }
+            }
         }
     }
 
     _populateInitialPackages() {
-        const itemNames = [
-            "Industrial Servo Actuator", "Microcontroller PCB Spool", "LiDAR Sensor Module",
-            "Hydraulic Valve Pack", "Precision Bearing Set", "Fiber Optic Transceiver",
-            "Lithium Battery Cell Array", "Carbon Fiber Chassis Kit"
+        const itemCategories = [
+            { name: "Industrial Servo Actuator", type: "kraft_carton", weight: 6.5, fragile: false },
+            { name: "Microcontroller PCB Spool", type: "priority_parcel", weight: 2.1, fragile: true },
+            { name: "LiDAR Sensor Turret Kit", type: "priority_parcel", weight: 3.4, fragile: true },
+            { name: "Hydraulic Valve Manifold", type: "euro_pallet", weight: 24.0, fragile: false },
+            { name: "Precision Bearing Assembly", type: "heavy_tote", weight: 12.8, fragile: false },
+            { name: "Fiber Optic Transceiver Pack", type: "priority_parcel", weight: 1.8, fragile: true },
+            { name: "Lithium-Ion Cell Array (48V)", type: "euro_pallet", weight: 32.5, fragile: true },
+            { name: "Carbon Fiber Robot Shell", type: "kraft_carton", weight: 4.2, fragile: false }
         ];
 
-        // Distribute 60 real parcels across racks and inbound docks
         let pkgCounter = 101;
         this.racks.forEach(rack => {
-            for (let i = 0; i < 6; i++) {
-                const px = rack.rect.x + 20 + (i % 3) * 60;
-                const py = rack.rect.y + 25 + Math.floor(i / 3) * 75;
+            for (let i = 0; i < 7; i++) {
+                const px = rack.rect.x + 22 + (i % 3) * 62;
+                const py = rack.rect.y + 24 + Math.floor(i / 3) * 65;
+                const item = itemCategories[Math.floor(Math.random() * itemCategories.length)];
                 const pkg = {
                     id: `PKG-${pkgCounter++}`,
-                    name: itemNames[Math.floor(Math.random() * itemNames.length)],
+                    name: item.name,
+                    type: item.type,
                     x: px,
                     y: py,
                     rackId: rack.id,
-                    weightKg: (2 + Math.random() * 18).toFixed(1),
-                    priority: Math.random() < 0.25 ? 'EXPRESS' : (Math.random() < 0.6 ? 'STANDARD' : 'BULK'),
+                    weightKg: (item.weight * (0.8 + Math.random() * 0.4)).toFixed(1),
+                    priority: Math.random() < 0.28 ? 'EXPRESS' : (Math.random() < 0.65 ? 'STANDARD' : 'BULK'),
+                    fragile: item.fragile,
+                    barcode: `BAR-${Math.floor(100000 + Math.random() * 900000)}`,
                     status: 'IN_STOCK', // 'IN_STOCK', 'ASSIGNED', 'IN_TRANSIT', 'DELIVERED'
                     carriedBy: null,
                     destination: this.deliveryStations[Math.floor(Math.random() * this.deliveryStations.length)]
@@ -244,6 +332,63 @@ class WarehouseWorld {
                 rack.boxSlots.push(pkg);
             }
         });
+    }
+
+    _spawnHumanStaff() {
+        // 2 Safety Supervisors walking the green walkways
+        this.supervisors = [
+            {
+                id: 'SUP-01',
+                name: 'Engr. Tariq (Safety Lead)',
+                x: 10 * TILE,
+                y: 4 * TILE,
+                targetX: (COLS - 8) * TILE,
+                targetY: 4 * TILE,
+                speed: 0.6,
+                dir: 1,
+                vestColor: '#22c55e', // Neon green
+                helmetColor: '#facc15', // Yellow hard hat
+                walkCycle: 0
+            },
+            {
+                id: 'SUP-02',
+                name: 'Supervisor Sarah (QC Auditor)',
+                x: (COLS - 10) * TILE,
+                y: 34 * TILE,
+                targetX: 8 * TILE,
+                targetY: 34 * TILE,
+                speed: 0.55,
+                dir: -1,
+                vestColor: '#f97316', // Neon orange
+                helmetColor: '#ffffff', // White supervisor hat
+                walkCycle: 0
+            }
+        ];
+
+        // 4 Packing Station Operators standing by dispatch benches
+        this.stationWorkers = this.deliveryStations.map((station, idx) => ({
+            id: `OP-${idx + 1}`,
+            name: `Packer ${idx + 1}`,
+            x: station.x - 24,
+            y: station.y - 10,
+            angle: Math.PI / 2,
+            vestColor: '#ea580c',
+            helmetColor: '#38bdf8',
+            scanTimer: 0
+        }));
+    }
+
+    updateStaff(tick) {
+        // Animate walking supervisors along green pedestrian lanes
+        for (const sup of this.supervisors) {
+            sup.walkCycle = (sup.walkCycle + 0.12) % (Math.PI * 2);
+            sup.x += sup.speed * sup.dir;
+            if (sup.dir === 1 && sup.x >= (COLS - 6) * TILE) {
+                sup.dir = -1;
+            } else if (sup.dir === -1 && sup.x <= 6 * TILE) {
+                sup.dir = 1;
+            }
+        }
     }
 
     _fillGridRect(cx, cy, w, h, type) {

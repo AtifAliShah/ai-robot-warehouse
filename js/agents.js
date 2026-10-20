@@ -26,21 +26,44 @@ function angleBetween(a, b) { return Math.atan2(b.y - a.y, b.x - a.x); }
 class RobotAgent {
     constructor(id, x, y, role, rng) {
         this.id = id;
-        this.role = role || 'transport'; // 'transport', 'shelf_lifter', 'sorting', 'maintenance'
+        this.role = role || 'transport'; // 'transport' (Kiva AMR), 'forklift' (Pallet Forklift), 'sorting' (Conveyor AMR)
+        this.modelType = this.role === 'shelf_lifter' || this.role === 'forklift' ? 'forklift' : (this.role === 'sorting' ? 'sorting' : 'kiva');
         this.x = x;
         this.y = y;
         this.angle = 0;
         this.targetAngle = 0;
         this.speed = 0;
-        this.maxSpeed = this.role === 'sorting' ? 2.6 : (this.role === 'shelf_lifter' ? 1.6 : 2.1);
+        this.prevSpeed = 0;
+        this.maxSpeed = this.modelType === 'sorting' ? 2.5 : (this.modelType === 'forklift' ? 1.7 : 2.2);
         this.accel = 0.08;
         this.rng = rng;
 
-        // Visual Chassis Specs
-        this.w = 34;
-        this.h = 24;
-        this.chassisColor = this.role === 'transport' ? '#eab308' : (this.role === 'sorting' ? '#0284c7' : (this.role === 'shelf_lifter' ? '#ea580c' : '#10b981'));
-        this.accentColor = '#1e293b';
+        // Visual Chassis Specs based on real industrial AMRs
+        if (this.modelType === 'forklift') {
+            this.w = 44;
+            this.h = 24;
+            this.chassisColor = '#f59e0b'; // Industrial safety yellow
+            this.accentColor = '#18181b';
+        } else if (this.modelType === 'sorting') {
+            this.w = 34;
+            this.h = 24;
+            this.chassisColor = '#06b6d4'; // High-tech cyan
+            this.accentColor = '#334155';
+        } else {
+            // Kiva Drive Unit
+            this.w = 36;
+            this.h = 26;
+            this.chassisColor = '#ea580c'; // Kiva orange
+            this.accentColor = '#1e293b';
+        }
+
+        // Mechanical Animation & Sensor Telemetry
+        this.liftProgress = 0.0; // 0.0 (grounded) to 1.0 (fully elevated)
+        this.isBraking = false;
+        this.turnBlinker = 'none'; // 'left', 'right', 'none'
+        this.lidarAngle = rng() * Math.PI * 2;
+        this.wheelRoll = 0;
+        this.strobeTick = 0;
 
         // Battery System
         this.battery = 75 + rng() * 25; // 0 - 100%
@@ -89,13 +112,17 @@ class RobotAgent {
         // 3. Finite State Machine Logic
         switch (this.state) {
             case 'IDLE':
-                this.statusLed = '#38bdf8';
+                this.statusLed = '#06b6d4';
                 this.speed = 0;
+                this.isBraking = false;
+                this.turnBlinker = 'none';
+                this.liftProgress = 0;
                 this.statusMessage = "Standing by for orders";
                 break;
 
             case 'NAVIGATING_PICKUP':
-                this.statusLed = '#38bdf8';
+                this.statusLed = '#06b6d4';
+                this.liftProgress = 0;
                 this._followPath(world, allRobots, () => {
                     this.state = 'LIFTING';
                     this.actionTimer = 35; // 35 ticks to load package
@@ -104,14 +131,18 @@ class RobotAgent {
                 break;
 
             case 'LIFTING':
-                this.statusLed = '#facc15';
+                this.statusLed = '#10b981'; // Green lifting ready
                 this.speed = 0;
+                this.isBraking = false;
+                this.turnBlinker = 'none';
                 this.actionTimer--;
+                this.liftProgress = Math.min(1.0, 1.0 - (this.actionTimer / 35.0));
                 if (this.actionTimer <= 0) {
                     // Attach package
                     this.carriedPackage = this.currentTask;
                     this.carriedPackage.status = 'IN_TRANSIT';
                     this.carriedPackage.carriedBy = this;
+                    this.liftProgress = 1.0;
 
                     // Plan route to Outbound Dispatch Station
                     const dest = this.carriedPackage.destination;
@@ -124,7 +155,8 @@ class RobotAgent {
                 break;
 
             case 'NAVIGATING_DELIVERY':
-                this.statusLed = '#38bdf8';
+                this.statusLed = '#10b981'; // Green active cargo
+                this.liftProgress = 1.0;
                 // Move carried package with robot
                 if (this.carriedPackage) {
                     this.carriedPackage.x = this.x;
@@ -138,9 +170,12 @@ class RobotAgent {
                 break;
 
             case 'DEPOSITING':
-                this.statusLed = '#4ade80';
+                this.statusLed = '#f59e0b'; // Amber depositing
                 this.speed = 0;
+                this.isBraking = false;
+                this.turnBlinker = 'none';
                 this.actionTimer--;
+                this.liftProgress = Math.max(0.0, this.actionTimer / 30.0);
                 if (this.actionTimer <= 0) {
                     if (this.carriedPackage) {
                         this.carriedPackage.status = 'DELIVERED';
@@ -148,6 +183,7 @@ class RobotAgent {
                         this.carriedPackage = null;
                         this.completedDeliveries++;
                     }
+                    this.liftProgress = 0.0;
                     this.currentTask = null;
                     this.destination = null;
                     this.state = 'IDLE';
@@ -157,6 +193,7 @@ class RobotAgent {
 
             case 'SEEKING_CHARGER':
                 this.statusLed = '#f59e0b';
+                this.liftProgress = 0;
                 this._followPath(world, allRobots, () => {
                     this.state = 'CHARGING';
                     this.speed = 0;
@@ -165,8 +202,11 @@ class RobotAgent {
                 break;
 
             case 'CHARGING':
-                this.statusLed = '#22c55e'; // Bright green
+                this.statusLed = '#3b82f6'; // Electric blue pulsing
                 this.speed = 0;
+                this.isBraking = false;
+                this.turnBlinker = 'none';
+                this.liftProgress = 0;
                 if (this.chargingDock) {
                     this.battery = Math.min(100, this.battery + this.chargingDock.chargeRate);
                 }
@@ -183,6 +223,8 @@ class RobotAgent {
             case 'BLOCKED':
                 this.statusLed = '#ef4444';
                 this.speed = 0;
+                this.isBraking = true;
+                this.turnBlinker = 'none';
                 this.blockedTicks++;
                 if (this.blockedTicks > 40) {
                     // Attempt dynamic reroute via A*
@@ -201,7 +243,13 @@ class RobotAgent {
     }
 
     _followPath(world, allRobots, onArrive) {
+        this.lidarAngle = (this.lidarAngle + 0.22) % (Math.PI * 2);
+        this.strobeTick++;
+
         if (!this.path || this.currentWaypointIndex >= this.path.length) {
+            this.speed = 0;
+            this.isBraking = false;
+            this.turnBlinker = 'none';
             if (onArrive) onArrive();
             return;
         }
@@ -213,6 +261,9 @@ class RobotAgent {
         if (d < 14) {
             this.currentWaypointIndex++;
             if (this.currentWaypointIndex >= this.path.length) {
+                this.speed = 0;
+                this.isBraking = false;
+                this.turnBlinker = 'none';
                 if (onArrive) onArrive();
                 return;
             }
@@ -222,16 +273,16 @@ class RobotAgent {
         for (const other of allRobots) {
             if (other === this || other.state === 'CHARGING') continue;
             const rDist = dist(this, other);
-            if (rDist < 36) {
-                // If heading into each other, yield priority based on robot ID
+            if (rDist < 38) {
                 const toOtherAngle = angleBetween(this, other);
                 const angleDiff = Math.abs(toOtherAngle - this.angle);
                 if (angleDiff < 1.0) {
                     if (this.id > other.id) {
                         // Yield & wait
-                        this.speed = Math.max(0, this.speed - 0.2);
-                        this.statusLed = '#f59e0b';
-                        this.statusMessage = `Yielding right-of-way to ${other.id}`;
+                        this.isBraking = true;
+                        this.speed = Math.max(0, this.speed - 0.25);
+                        this.statusLed = '#ef4444';
+                        this.statusMessage = `Collision avoidance: Yielding to ${other.id}`;
                         return;
                     }
                 }
@@ -244,10 +295,18 @@ class RobotAgent {
         let diff = this.targetAngle - this.angle;
         while (diff < -Math.PI) diff += Math.PI * 2;
         while (diff > Math.PI) diff -= Math.PI * 2;
-        this.angle += diff * 0.15;
+        this.angle += diff * 0.16;
+
+        // Turn blinkers
+        if (diff > 0.22) this.turnBlinker = 'right';
+        else if (diff < -0.22) this.turnBlinker = 'left';
+        else this.turnBlinker = 'none';
 
         // Accelerate
+        const prevSpd = this.speed;
         this.speed = Math.min(this.maxSpeed, this.speed + this.accel);
+        this.isBraking = (this.speed < prevSpd - 0.05);
+        this.wheelRoll += this.speed * 0.45;
 
         const vx = Math.cos(this.angle) * this.speed;
         const vy = Math.sin(this.angle) * this.speed;
@@ -260,6 +319,7 @@ class RobotAgent {
             this.totalDistanceMeters += (this.speed * 0.1);
         } else {
             // Blocked by rack or user obstacle
+            this.isBraking = true;
             this.state = 'BLOCKED';
             this.statusMessage = "Aisle blocked! Waiting for clearance.";
         }
